@@ -86,9 +86,9 @@ function simulateDestruction(blocks, angleDeg, velocity) {
 function GamePage() {
   const [gameState, setGameState] = useState({
     blocks: [
-      { id: 1, x: 520, y: 350, width: 60, height: 60, type: "wood" },
-      { id: 2, x: 520, y: 290, width: 60, height: 60, type: "stone" },
-      { id: 3, x: 580, y: 350, width: 60, height: 60, type: "wood" },
+      { id: 1, x: 240, y: 355, width: 60, height: 60, type: "wood" },
+      { id: 2, x: 270, y: 295, width: 60, height: 60, type: "stone" },
+      { id: 3, x: 300, y: 355, width: 60, height: 60, type: "wood" },
     ],
     birds_left: 3,
   });
@@ -96,6 +96,8 @@ function GamePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [gameStatus, setGameStatus] = useState("playing"); // "playing", "won", "lost"
   const [lastShotResult, setLastShotResult] = useState(null);
+  const [birdFlying, setBirdFlying] = useState(null); // {angle, velocity, startTime}
+  const [impactEffect, setImpactEffect] = useState(null); // {x, y, radius, timestamp}
 
   useEffect(() => {
     // Update gameStatus reactively if blocks become zero
@@ -115,17 +117,31 @@ function GamePage() {
     // Compute current score before shot
     const scoreBefore = calculateStructureScore(gameState.blocks);
 
-    // Small UX: show loading spinner & delay to mimic processing (keeps previous UI behavior)
-    setIsLoading(true);
+    // Start bird flying animation
+    setBirdFlying({ angle, velocity, startTime: Date.now() });
     setLastShotResult(null);
 
-    // We simulate a short processing delay (200-500ms)
+    // Calculate flight time based on velocity (approximate)
+    const flightTime = Math.min(800, 300 + velocity * 15);
+
+    // After flight animation, show impact
     setTimeout(() => {
+      setBirdFlying(null);
+      setIsLoading(true);
+
       const { newBlocks, impactX, impactY, impactRadius } = simulateDestruction(
         gameState.blocks,
         angle,
         velocity
       );
+
+      // Show impact effect
+      setImpactEffect({ x: impactX, y: impactY, radius: impactRadius, timestamp: Date.now() });
+
+      // Clear impact effect after animation
+      setTimeout(() => {
+        setImpactEffect(null);
+      }, 600);
 
       const scoreAfter = calculateStructureScore(newBlocks);
       const blocksDestroyed = gameState.blocks.length - newBlocks.length;
@@ -151,19 +167,15 @@ function GamePage() {
       if (scoreAfter === 0) {
         setGameStatus("won");
       } else if (gameState.birds_left - 1 <= 0) {
-        // Note: gameState.birds_left here is still old value; we've already decremented in setState above,
-        // but since setState is async, we check using the newBlocks length and prev birds.
-        // We'll set lost in the global effect that watches gameState, but to be safe:
         setTimeout(() => {
           setGameState((prev) => {
-            // no-op but ensures effect runs
             return { ...prev };
           });
         }, 0);
       }
 
       setIsLoading(false);
-    }, 300);
+    }, flightTime);
   }
 
   function resetGame() {
@@ -177,6 +189,8 @@ function GamePage() {
     });
     setGameStatus("playing");
     setLastShotResult(null);
+    setBirdFlying(null);
+    setImpactEffect(null);
   }
 
   return (
@@ -282,6 +296,8 @@ function GamePage() {
           birdsLeft={gameState.birds_left}
           blocks={gameState.blocks}
           onShoot={shootBird}
+          birdFlying={birdFlying}
+          impactEffect={impactEffect}
         />
 
         {/* Loading Overlay */}
@@ -363,4 +379,4 @@ function GamePage() {
   );
 }
 
-export default GamePage;
+export default GamePage; 
