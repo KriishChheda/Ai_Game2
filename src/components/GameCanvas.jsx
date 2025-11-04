@@ -2,48 +2,51 @@ import React, { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Block from "./Block";
 import red from "../assets/red.png";
+import blue from "../assets/blue.png";
+import yellow from "../assets/yellow.png";
 
-function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
+const BIRD_IMAGES = {
+  red: red,
+  blue: blue,
+  yellow: yellow
+};
+
+function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, birdFlying, impactEffects, config }) {
   const slingRef = useRef(null);
   const [dragPos, setDragPos] = useState(null);
   const [isAiming, setIsAiming] = useState(false);
   const [flyingBirdPos, setFlyingBirdPos] = useState(null);
   
-  const slingX = 150;
-  const slingY = 360;
+  const slingX = config.slingshot.x;
+  const slingY = config.slingshot.y;
 
-  // Animate flying bird
   useEffect(() => {
     if (!birdFlying) {
       setFlyingBirdPos(null);
       return;
     }
 
-    const { angle, velocity, startTime } = birdFlying;
-    const rad = (angle * Math.PI) / 180;
+    const { trajectory, startTime } = birdFlying;
+    let frameIndex = 0;
     
     const animate = () => {
       const elapsed = Date.now() - startTime;
-      const progress = elapsed / 1000; // time in seconds
+      frameIndex = Math.floor(elapsed / 16);
       
-      // Physics-based trajectory
-      const vx = Math.cos(rad) * velocity * 30;
-      const vy = -Math.sin(rad) * velocity * 30;
-      const gravity = 200; // pixels per second squared
-      
-      const x = slingX + vx * progress;
-      const y = slingY + vy * progress + 0.5 * gravity * progress * progress;
-      
-      // Rotation based on velocity direction
-      const currentVy = vy + gravity * progress;
-      const rotation = Math.atan2(currentVy, vx) * 180 / Math.PI;
-      
-      setFlyingBirdPos({ x, y, rotation });
-      
-      // Continue animation if bird is still in bounds
-      if (x < 900 && y < 600) {
-        requestAnimationFrame(animate);
+      if (frameIndex >= trajectory.length) {
+        setFlyingBirdPos(null);
+        return;
       }
+
+      const point = trajectory[frameIndex];
+      let rotation = 0;
+      if (frameIndex < trajectory.length - 1) {
+        const nextPoint = trajectory[frameIndex + 1];
+        rotation = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI;
+      }
+      
+      setFlyingBirdPos({ x: point.x, y: point.y, rotation });
+      requestAnimationFrame(animate);
     };
     
     animate();
@@ -81,14 +84,15 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
   };
 
   const stretchDistance = dragPos ? Math.sqrt(Math.pow(slingX - dragPos.x, 2) + Math.pow(slingY - dragPos.y, 2)) : 0;
+  const currentBirdImage = currentBird ? BIRD_IMAGES[currentBird.type] : red;
 
   return (
     <div
       ref={slingRef}
       className="relative overflow-hidden rounded-2xl shadow-2xl shadow-yellow-100 border-4 border-green-800"
       style={{
-        width: "800px",
-        height: "500px",
+        width: `${config.canvas.width}px`,
+        height: `${config.canvas.height}px`,
         background: "linear-gradient(to bottom, #87CEEB 0%, #98FB98 60%, #90EE90 100%)",
         cursor: birdsLeft > 0 && !birdFlying ? "crosshair" : "not-allowed"
       }}
@@ -98,7 +102,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
     >
       {/* Sky with clouds */}
       <div className="absolute inset-0 pointer-events-none">
-        {/* Cloud 1 - Large fluffy cloud */}
         <div className="absolute top-4 left-0">
           <div 
             className="relative" 
@@ -115,7 +118,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
           </div>
         </div>
 
-        {/* Cloud 2 - Medium cloud */}
         <div className="absolute top-12 right-0">
           <div 
             className="relative" 
@@ -131,7 +133,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
           </div>
         </div>
 
-        {/* Cloud 3 - Small wispy cloud */}
         <div className="absolute top-8 left-1/4">
           <div 
             className="relative" 
@@ -146,7 +147,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
           </div>
         </div>
 
-        {/* Cloud 4 - Large background cloud */}
         <div className="absolute top-20 left-2/5">
           <div 
             className="relative" 
@@ -162,7 +162,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
           </div>
         </div>
 
-        {/* Cloud 5 - High wispy cloud */}
         <div className="absolute top-2 right-1/4">
           <div 
             className="relative" 
@@ -186,7 +185,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
           borderTop: "3px solid #1a5f1a"
         }}
       >
-        {/* Grass texture */}
         <div className="absolute inset-0 opacity-50">
           {Array.from({ length: 700 }).map((_, i) => (
             <div
@@ -206,7 +204,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
 
       {/* Left side – Sling + Bird */}
       <div className="absolute left-0 top-0 w-1/2 h-full">
-        {/* Y-shaped slingshot frame */}
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
           <defs>
             <linearGradient id="woodGradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -244,7 +241,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             </filter>
           </defs>
           
-          {/* Main trunk of Y-shape */}
           <path
             d={`M ${slingX - 8} ${slingY + 60} 
                 L ${slingX + 8} ${slingY + 60} 
@@ -256,7 +252,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             filter="url(#dropShadow)"
           />
           
-          {/* Left branch of Y-shape */}
           <path
             d={`M ${slingX - 6} ${slingY - 100} 
                 L ${slingX - 4} ${slingY - 100} 
@@ -270,7 +265,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             filter="url(#dropShadow)"
           />
           
-          {/* Right branch of Y-shape */}
           <path
             d={`M ${slingX + 6} ${slingY - 100} 
                 L ${slingX + 4} ${slingY - 100} 
@@ -284,12 +278,11 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             filter="url(#dropShadow)"
           />
           
-          {/* Metal reinforcements at connection points */}
           <circle
             cx={slingX - 38}
             cy={slingY - 150}
             r="4"
-            fill="#C0C0C0"
+            fill="linear-gradient(45deg, #C0C0C0, #808080)"
             stroke="#606060"
             strokeWidth="1"
           />
@@ -297,24 +290,23 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             cx={slingX + 38}
             cy={slingY - 150}
             r="4"
-            fill="#C0C0C0"
+            fill="linear-gradient(45deg, #C0C0C0, #808080)"
             stroke="#606060"
             strokeWidth="1"
           />
           
-          {/* Base reinforcement */}
           <ellipse
             cx={slingX}
             cy={slingY + 55}
             rx="11"
             ry="8"
-            fill="#8B4513"
+            fill="linear-gradient(45deg, #8B4513, #654321)"
             stroke="#5D4037"
             strokeWidth="2"
           />
         </svg>
 
-        {/* Enhanced elastic bands with physics-based curves */}
+        {/* Enhanced elastic bands */}
         {isAiming && dragPos && (
           <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
             {(() => {
@@ -408,7 +400,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
                     cy={pullPoint.y}
                     rx="8"
                     ry="6"
-                    fill="#8B4513"
+                    fill="linear-gradient(45deg, #8B4513, #A0522D)"
                     stroke="#654321"
                     strokeWidth="2"
                     opacity="0.8"
@@ -458,7 +450,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
               height: 44,
               left: dragPos ? dragPos.x - 22 : slingX - 22,
               top: dragPos ? dragPos.y - 22 : slingY - 22,
-              zIndex: 50,
+              zIndex:50,
               transform: isAiming ? `scale(${1 + stretchDistance * 0.001})` : "scale(1)",
               filter: "drop-shadow(2px 2px 4px rgba(0,0,0,0.3))"
             }}
@@ -467,7 +459,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             whileHover={{ scale: 1.1 }}
           >
             <img
-              src={red}
+              src={currentBirdImage}
               alt="Angry Bird"
               className="w-full h-full object-contain rounded-full"
               style={{
@@ -487,7 +479,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
 
         {/* Flying bird */}
         <AnimatePresence>
-          {flyingBirdPos && (
+          {flyingBirdPos && birdFlying && (
             <motion.div
               className="absolute pointer-events-none"
               style={{
@@ -503,7 +495,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
               transition={{ duration: 0.2, repeat: Infinity }}
             >
               <motion.img
-                src={red}
+                src={BIRD_IMAGES[birdFlying.birdType]}
                 alt="Flying Bird"
                 className="w-full h-full object-contain"
                 style={{
@@ -512,7 +504,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
                 }}
                 draggable={false}
               />
-              {/* Motion trail */}
               <div 
                 className="absolute inset-0 rounded-full"
                 style={{
@@ -525,11 +516,11 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
           )}
         </AnimatePresence>
 
-        {/* Birds queue */}
+        {/* Birds queue showing different bird types */}
         <div className="absolute left-6 bottom-24">
           <div className="text-xs font-bold text-green-800 mb-2">Next Birds:</div>
           <div className="flex gap-2">
-            {Array.from({ length: Math.max(0, birdsLeft - 1) }).map((_, idx) => (
+            {remainingBirds.filter(b => !b.used).slice(1).map((bird, idx) => (
               <motion.div
                 key={idx}
                 className="relative"
@@ -545,7 +536,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
                 }}
               >
                 <img
-                  src={red}
+                  src={BIRD_IMAGES[bird.type]}
                   alt="Next Bird"
                   className="w-full h-full object-contain rounded-full"
                   style={{
@@ -578,21 +569,24 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
               width={block.width || 60}
               height={block.height || 60}
               type={block.type || "wood"}
+              health={100}
+              damage={block.damage || 0}
             />
           ))}
         </AnimatePresence>
       </div>
 
-      {/* Impact effect */}
+      {/* Impact effects */}
       <AnimatePresence>
-        {impactEffect && (
+        {impactEffects.map((effect) => (
           <motion.div
+            key={effect.id}
             className="absolute pointer-events-none"
             style={{
-              left: impactEffect.x - impactEffect.radius,
-              top: impactEffect.y - impactEffect.radius,
-              width: impactEffect.radius * 2,
-              height: impactEffect.radius * 2,
+              left: effect.position.x - effect.radius,
+              top: effect.position.y - effect.radius,
+              width: effect.radius * 2,
+              height: effect.radius * 2,
               zIndex: 200
             }}
             initial={{ scale: 0, opacity: 1 }}
@@ -600,10 +594,8 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
             exit={{ scale: 2, opacity: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
-            {/* Explosion burst */}
             <div className="absolute inset-0 rounded-full bg-gradient-radial from-yellow-400 via-orange-500 to-red-600 opacity-80" />
             
-            {/* Particles */}
             {Array.from({ length: 12 }).map((_, i) => {
               const angle = (i / 12) * Math.PI * 2;
               return (
@@ -625,7 +617,6 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
               );
             })}
             
-            {/* Impact shockwave */}
             <motion.div
               className="absolute inset-0 rounded-full border-4 border-white"
               initial={{ scale: 0.5, opacity: 1 }}
@@ -633,7 +624,7 @@ function GameCanvas({ birdsLeft, blocks, onShoot, birdFlying, impactEffect }) {
               transition={{ duration: 0.4 }}
             />
           </motion.div>
-        )}
+        ))}
       </AnimatePresence>
 
       {/* Aim helper line */}
