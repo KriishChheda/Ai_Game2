@@ -28,25 +28,21 @@ const Block = ({ x, y, width, height, type, health = 100, damage = 0 }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.8 }}
+      initial={false} // Disable initial animation for existing blocks
       animate={{ 
         opacity: isDestroyed ? 0 : 1, 
-        scale: isDestroyed ? 0 : (1 - damageRatio * 0.2),
+        scale: isDestroyed ? 0 : (1 - damageRatio * 0.1),
+        // Use layout transition for smooth y-coordinate changes (falling)
+        x: x, 
+        y: y,
         rotate: isDestroyed ? [0, 45, -45, 90] : tiltAngle,
-        x: isDamaged && !isDestroyed ? [0, shakeIntensity, -shakeIntensity, 0] : 0,
-        y: isDamaged && !isDestroyed ? [0, -shakeIntensity, 0] : 0
-      }}
-      exit={{ 
-        opacity: 0, 
-        scale: 0,
-        rotate: 360,
-        y: -50
       }}
       transition={{ 
-        duration: isDestroyed ? 0.5 : 0.3,
-        ease: "easeOut",
-        x: { duration: 0.2, repeat: isDamaged && !isDestroyed ? 2 : 0 },
-        y: { duration: 0.2, repeat: isDamaged && !isDestroyed ? 2 : 0 }
+        type: "spring", 
+        stiffness: 100, // Makes it feel heavy like a block
+        damping: 15,
+        mass: 1,
+        opacity: { duration: 0.2 }
       }}
       className="absolute rounded-md shadow-lg"
       style={{
@@ -95,17 +91,14 @@ const Block = ({ x, y, width, height, type, health = 100, damage = 0 }) => {
         </div>
       )}
 
-      {/* Health indicator ONLY for bottom blocks */}
-      {isBottomBlock && isDamaged && !isDestroyed && (
-        <div 
-          className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-10 h-1 bg-gray-300 rounded-full overflow-hidden"
-          style={{ zIndex: 10 }}
-        >
+      {/* Show health bar for any damaged block to help the player aim */}
+      {isDamaged && !isDestroyed && (
+        <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-10 h-1 bg-gray-300 rounded-full overflow-hidden">
           <div 
             className="h-full transition-all duration-300"
             style={{
               width: `${Math.max(0, 100 - damageRatio * 100)}%`,
-              background: damageRatio > 0.7 ? '#ef4444' : damageRatio > 0.4 ? '#f59e0b' : '#22c55e'
+              background: damageRatio > 0.7 ? '#ef4444' : '#22c55e'
             }}
           />
         </div>

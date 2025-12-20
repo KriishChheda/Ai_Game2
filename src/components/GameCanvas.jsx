@@ -627,26 +627,34 @@ function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, b
         ))}
       </AnimatePresence>
 
-      {/* Aim helper line */}
+      {/* Refined Aim helper line in src/components/GameCanvas.jsx */}
       {isAiming && dragPos && (
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none">
           <defs>
             <linearGradient id="aimLine" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="rgba(255,255,255,0.8)" />
-              <stop offset="50%" stopColor="rgba(255,255,0,0.6)" />
-              <stop offset="100%" stopColor="rgba(255,0,0,0.4)" />
+              <stop offset="100%" stopColor="rgba(255,255,255,0)" />
             </linearGradient>
           </defs>
-          <line
-            x1={dragPos.x}
-            y1={dragPos.y}
-            x2={dragPos.x + (dragPos.x - slingX) * 3}
-            y2={dragPos.y + (dragPos.y - slingY) * 3}
-            stroke="url(#aimLine)"
-            strokeWidth="2"
-            strokeDasharray="5,5"
-            opacity="0.7"
-          />
+          {/* Dotted projection line */}
+          {Array.from({ length: 12 }).map((_, i) => {
+            const dx = slingX - dragPos.x;
+            const dy = slingY - dragPos.y;
+            // Project forward instead of backward
+            const x = slingX + dx * (i * 0.4);
+            const y = slingY + dy * (i * 0.4) + (0.5 * 0.1 * Math.pow(i, 2)); // Add slight gravity curve
+            
+            return (
+              <circle 
+                key={i} 
+                cx={x} 
+                cy={y} 
+                r={3 - i * 0.2} 
+                fill="white" 
+                opacity={0.8 - i * 0.05} 
+              />
+            );
+          })}
         </svg>
       )}
 

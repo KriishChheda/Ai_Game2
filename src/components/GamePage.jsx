@@ -23,7 +23,7 @@ const GAME_CONFIG = {
   },
   slingshot: {
     x: 180,
-    y: 440,
+    y: 535,
   },
   physics: {
     gravity: 980,
@@ -32,7 +32,7 @@ const GAME_CONFIG = {
   },
   collision: {
     birdRadius: 22,
-    damageMultiplier: 0.5,
+    damageMultiplier: 1.2,
   }
 };
 
@@ -98,43 +98,43 @@ const GROUND_Y = GAME_CONFIG.canvas.height - GAME_CONFIG.canvas.groundHeight;
  * BLOCK-ON-BLOCK AI ALGORITHM
  * Calculates structural stability score
  */
+/**
+ * BLOCK-ON-BLOCK AI ALGORITHM
+ * Calculates structural stability score. 
+ * Initial score with 5 blocks will be 5.
+ */
 function calculateBlockOnBlockScore(blocks) {
   let score = 0;
-  const HORIZONTAL_TOLERANCE = 35; // Horizontal alignment tolerance in pixels
-  const VERTICAL_TOLERANCE = 5; // Vertical stacking tolerance in pixels
-  
+  const HORIZONTAL_TOLERANCE = 45; 
+  const VERTICAL_TOLERANCE = 15; 
+  const GROUND_LEVEL = 580; // Matches your canvas height - ground height
+
   blocks.forEach(block => {
     const blockBottom = block.y + block.height;
     
-    // Check if block is on ground (within tolerance)
-    if (Math.abs(blockBottom - GROUND_Y) <= VERTICAL_TOLERANCE) {
+    // 1. Every block in the array starts as a potential point.
+    // We just need to verify if it is "stable" (on ground or on a block).
+    
+    // Check if on ground
+    if (Math.abs(blockBottom - GROUND_LEVEL) <= VERTICAL_TOLERANCE) {
       score += 1;
       return;
     }
     
-    // Check if block is correctly placed on another block
-    const supportingBlock = blocks.find(otherBlock => {
+    // Check if supported by ANY other block
+    const isSupported = blocks.some(otherBlock => {
       if (otherBlock.id === block.id) return false;
       
-      const otherTop = otherBlock.y;
-      
-      // Check vertical alignment (block bottom should be near other block top)
-      const verticallyAligned = Math.abs(blockBottom - otherTop) <= VERTICAL_TOLERANCE;
-      
-      if (!verticallyAligned) return false;
-      
-      // Check horizontal alignment (block center should be over supporting block)
+      const verticallyAligned = Math.abs(blockBottom - otherBlock.y) <= VERTICAL_TOLERANCE;
       const blockCenterX = block.x + block.width / 2;
-      const otherLeft = otherBlock.x;
-      const otherRight = otherBlock.x + otherBlock.width;
-      
-      const horizontallyAligned = blockCenterX >= (otherLeft - HORIZONTAL_TOLERANCE) && 
-                                  blockCenterX <= (otherRight + HORIZONTAL_TOLERANCE);
-      
-      return horizontallyAligned;
+      const horizontallyAligned = 
+        blockCenterX >= (otherBlock.x - HORIZONTAL_TOLERANCE) && 
+        blockCenterX <= (otherBlock.x + otherBlock.width + HORIZONTAL_TOLERANCE);
+        
+      return verticallyAligned && horizontallyAligned;
     });
     
-    if (supportingBlock) {
+    if (isSupported) {
       score += 1;
     }
   });
@@ -145,25 +145,79 @@ function calculateBlockOnBlockScore(blocks) {
 /**
  * PHYSICS ENGINE - Accurate projectile trajectory
  */
-function calculateTrajectory(angle, velocity, startX, startY, steps = 100) {
+// src/components/GamePage.jsx - Refined trajectory
+function calculateTrajectory(angle, velocity, startX, startY, steps = 150) {
   const rad = (angle * Math.PI) / 180;
-  const vx = Math.cos(rad) * velocity * 50;
-  const vy = -Math.sin(rad) * velocity * 50;
+  // Increase sensitivity: lower the divisor for a more powerful feel
+  const vx = Math.cos(rad) * velocity * 65; 
+  const vy = -Math.sin(rad) * velocity * 65;
   
   const trajectory = [];
-  const dt = GAME_CONFIG.physics.timeStep;
+  const dt = 0.016; // Fixed 60fps step for smoothness
   
   for (let i = 0; i < steps; i++) {
     const t = i * dt;
-    const x = startX + vx * t * Math.pow(GAME_CONFIG.physics.airResistance, i);
+    // Apply air resistance per step
+    const resistance = Math.pow(GAME_CONFIG.physics.airResistance, i);
+    const x = startX + vx * t * resistance;
     const y = startY + vy * t + 0.5 * GAME_CONFIG.physics.gravity * t * t;
     
-    if (y >= GROUND_Y || x > GAME_CONFIG.canvas.width || y < 0) break;
+    if (y > GROUND_Y + 50 || x > GAME_CONFIG.canvas.width + 100) break;
     
     trajectory.push({ x, y, t });
   }
   
   return trajectory;
+}
+
+/**
+ * STRUCTURAL COLLAPSE LOGIC
+ * Makes floating blocks fall and take impact damage
+ */
+
+function resolveStructuralCollapses(blocks) {
+  let updatedBlocks = [...blocks];
+  let changed = true;
+  const FALL_DAMAGE_MULTIPLIER = 0.5;
+
+  // Keep resolving until no more blocks need to fall
+  while (changed) {
+    changed = false;
+    updatedBlocks = updatedBlocks.map(block => {
+      const blockBottom = block.y + block.height;
+      
+      // If block is on ground, it's stable
+      if (Math.abs(blockBottom - GROUND_Y) <= 5) return block;
+
+      // Check for support below
+      const hasSupport = updatedBlocks.some(other => {
+        if (other.id === block.id) return false;
+        const verticallyAligned = Math.abs(blockBottom - other.y) <= 5;
+        const blockCenterX = block.x + block.width / 2;
+        const horizontallyAligned = blockCenterX >= other.x && blockCenterX <= (other.x + other.width);
+        return verticallyAligned && horizontallyAligned;
+      });
+
+      if (!hasSupport) {
+        changed = true;
+        const fallDistance = 20; // Move down in increments
+        const newY = Math.min(block.y + fallDistance, GROUND_Y - block.height);
+        
+        // Apply fall damage
+        const impactDamage = fallDistance * FALL_DAMAGE_MULTIPLIER;
+        return { ...block, y: newY, damage: (block.damage || 0) + impactDamage };
+      }
+      return block;
+    });
+
+    // Remove blocks that broke during the fall
+    updatedBlocks = updatedBlocks.filter(block => {
+      const type = BLOCK_TYPES[block.type];
+      return block.damage < type.health;
+    });
+  }
+
+  return updatedBlocks;
 }
 
 /**
@@ -189,7 +243,7 @@ function calculateDamage(velocity, birdType, blockType) {
   const bird = BIRD_TYPES[birdType];
   const block = BLOCK_TYPES[blockType];
   
-  const velocityFactor = Math.min(velocity / 20, 2);
+  const velocityFactor = velocity / 10;
   const damage = bird.damage * velocityFactor / block.density * GAME_CONFIG.collision.damageMultiplier;
   
   return Math.round(damage);
@@ -251,7 +305,11 @@ function simulateShot(blocks, angle, velocity, birdType = 'red') {
     return !block.damage || block.damage < blockType.health;
   });
   
-  const blocksDestroyed = blocks.length - newBlocks.length;
+  let finalBlocks = newBlocks;
+
+// Trigger structural collapse for floating blocks
+  finalBlocks = resolveStructuralCollapses(finalBlocks);
+  const blocksDestroyed = blocks.length - finalBlocks.length;
   const totalDamage = collisions.reduce((sum, col) => sum + col.damage, 0);
   const reward = blocksDestroyed * 100 + totalDamage;
   
@@ -266,14 +324,16 @@ function simulateShot(blocks, angle, velocity, birdType = 'red') {
 }
 
 function GamePage() {
-  const initialBlocks = [
-    { id: 1, x: 400, y: 450, width: 60, height: 60, type: "wood", damage: 0 }, 
-    { id: 2, x: 370, y: 330, width: 60, height: 60, type: "stone", damage: 0 }, 
-    { id: 3, x: 340, y: 450, width: 60, height: 60, type: "wood", damage: 0 }, 
-    { id: 4, x: 340, y: 390, width: 60, height: 60, type: "glass", damage: 0 }, 
-    { id: 5, x: 400, y: 390, width: 60, height: 60, type: "ice", damage: 0 },
-  ];
-
+const initialBlocks = [
+  // Grounded blocks
+  { id: 1, x: 400, y: 520, width: 60, height: 60, type: "wood", damage: 0 }, 
+  { id: 3, x: 340, y: 520, width: 60, height: 60, type: "wood", damage: 0 }, 
+  // Middle layer
+  { id: 4, x: 340, y: 460, width: 60, height: 60, type: "glass", damage: 0 }, 
+  { id: 5, x: 400, y: 460, width: 60, height: 60, type: "ice", damage: 0 },
+  // Top layer
+  { id: 2, x: 370, y: 400, width: 60, height: 60, type: "stone", damage: 0 }, 
+];
   const [gameState, setGameState] = useState({
     blocks: initialBlocks,
     birds: [
@@ -284,7 +344,7 @@ function GamePage() {
     currentBirdIndex: 0,
     score: 0,
     shots: [],
-    initialStructureScore: calculateBlockOnBlockScore(initialBlocks)
+    initialStructureScore: 5
   });
 
   const [isLoading, setIsLoading] = useState(false);
