@@ -4,14 +4,18 @@ import Block from "./Block";
 import red from "../assets/red.png";
 import blue from "../assets/blue.png";
 import yellow from "../assets/yellow.png";
+import black from "../assets/black.png";
+import white from "../assets/white.png";
 
 const BIRD_IMAGES = {
   red: red,
   blue: blue,
-  yellow: yellow
+  yellow: yellow,
+  black:black,
+  white:white
 };
 
-function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, birdFlying, impactEffects, config }) {
+function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot,onTriggerAbility, birdFlying, impactEffects, config }) {
   const slingRef = useRef(null);
   const [dragPos, setDragPos] = useState(null);
   const [isAiming, setIsAiming] = useState(false);
@@ -26,28 +30,36 @@ function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, b
       return;
     }
 
-    const { trajectory, startTime } = birdFlying;
-    let frameIndex = 0;
+    const { trajectories, trajectory, startTime } = birdFlying;
+    const activeTrajectories = trajectories || [trajectory];
     
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      frameIndex = Math.floor(elapsed / 16);
-      
-      if (frameIndex >= trajectory.length) {
-        setFlyingBirdPos(null);
-        return;
-      }
+const animate = () => {
+  const elapsed = Date.now() - startTime;
+  const frameIndex = Math.floor(elapsed / 16);
+  
+  const currentPositions = activeTrajectories.map(item => {
+    // Check if we are dealing with our new object structure or the old array structure
+    const trajectory = item.traj || item;
+    const type = item.type || birdFlying.birdType;
 
-      const point = trajectory[frameIndex];
-      let rotation = 0;
-      if (frameIndex < trajectory.length - 1) {
-        const nextPoint = trajectory[frameIndex + 1];
-        rotation = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI;
-      }
-      
-      setFlyingBirdPos({ x: point.x, y: point.y, rotation });
-      requestAnimationFrame(animate);
-    };
+    if (frameIndex >= trajectory.length) return null;
+    const point = trajectory[frameIndex];
+    let rotation = 0;
+    if (frameIndex < trajectory.length - 1) {
+      const nextPoint = trajectory[frameIndex + 1];
+      rotation = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI;
+    }
+    return { x: point.x, y: point.y, rotation, type };
+  }).filter(p => p !== null);
+
+  if (currentPositions.length === 0) {
+    setFlyingBirdPos(null);
+    return;
+  }
+  
+  setFlyingBirdPos(currentPositions);
+  requestAnimationFrame(animate);
+};
     
     animate();
   }, [birdFlying]);
@@ -77,12 +89,12 @@ function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, b
     const dy = slingY - dragPos.y;
     const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
     const velocity = Math.sqrt(dx * dx + dy * dy) / 5;
-    
     onShoot(angle, velocity);
     setDragPos(null);
     setIsAiming(false);
   };
 
+  
   const stretchDistance = dragPos ? Math.sqrt(Math.pow(slingX - dragPos.x, 2) + Math.pow(slingY - dragPos.y, 2)) : 0;
   const currentBirdImage = currentBird ? BIRD_IMAGES[currentBird.type] : red;
 
@@ -99,6 +111,11 @@ function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, b
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onClick={() => {
+      if (birdFlying && !birdFlying.abilityUsed) {
+        onTriggerAbility();
+      }
+  }}
     >
       {/* Sky with clouds */}
       <div className="absolute inset-0 pointer-events-none">
@@ -477,44 +494,63 @@ function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, b
           </motion.div>
         )}
 
-        {/* Flying bird */}
-        <AnimatePresence>
-          {flyingBirdPos && birdFlying && (
-            <motion.div
-              className="absolute pointer-events-none"
-              style={{
-                width: 44,
-                height: 44,
-                left: flyingBirdPos.x - 22,
-                top: flyingBirdPos.y - 22,
-                zIndex: 100,
-                filter: "drop-shadow(2px 2px 6px rgba(0,0,0,0.4))"
-              }}
-              initial={{ scale: 1 }}
-              animate={{ scale: [1, 1.1, 1] }}
-              transition={{ duration: 0.2, repeat: Infinity }}
-            >
-              <motion.img
-                src={BIRD_IMAGES[birdFlying.birdType]}
-                alt="Flying Bird"
-                className="w-full h-full object-contain"
-                style={{
-                  transform: `rotate(${flyingBirdPos.rotation}deg)`,
-                  imageRendering: "crisp-edges"
-                }}
-                draggable={false}
-              />
-              <div 
-                className="absolute inset-0 rounded-full"
-                style={{
-                  background: "radial-gradient(circle, rgba(255,0,0,0.3) 0%, transparent 70%)",
-                  transform: "scale(1.5)",
-                  zIndex: -1
-                }}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+<AnimatePresence>
+  {flyingBirdPos && birdFlying && (
+    // Check if flyingBirdPos is an array (split) or a single object
+    (Array.isArray(flyingBirdPos) ? flyingBirdPos : [flyingBirdPos]).map((pos, idx) => (
+      <motion.div
+        key={idx}
+        className="absolute z-[100] pointer-events-none"
+        style={{
+          // Change size if it's an egg
+          width: pos.type === 'egg' ? 24 : 44, 
+          height: pos.type === 'egg' ? 30 : 44,
+          left: pos.x - (pos.type === 'egg' ? 12 : 22),
+          top: pos.y - (pos.type === 'egg' ? 15 : 22),
+          // Apply a brightness/contrast filter to the egg to distinguish it
+          filter: pos.type === 'egg' 
+            ? "brightness(1.5) contrast(1.2) drop-shadow(0 2px 4px rgba(0,0,0,0.3))" 
+            : "drop-shadow(2px 2px 6px rgba(0,0,0,0.4))"
+        }}
+      >
+        <motion.img
+          // Use the 'white' image for both, but the styles above make them look different
+          src={BIRD_IMAGES[pos.type === 'egg' ? 'white' : pos.type]} 
+          className="w-full h-full object-contain"
+          style={{ transform: `rotate(${pos.rotation}deg)` }}
+        />
+        {/* Ability Effect: Yellow Glow/Aura */}
+        {birdFlying.abilityUsed && (
+          <motion.div 
+            className="absolute inset-0 rounded-full"
+            initial={{ opacity: 0, scale: 1 }}
+            animate={{ 
+              opacity: [0.4, 0.8, 0.4], 
+              scale: [1.2, 1.8, 1.2],
+            }}
+            transition={{ duration: 0.15, repeat: Infinity }}
+            style={{
+              background: "radial-gradient(circle, rgba(255,255,0,0.6) 0%, transparent 70%)",
+              zIndex: -1
+            }}
+          />
+        )}
+
+        {/* Standard Bird Glow (Red tint) */}
+        {!birdFlying.abilityUsed && (
+          <div 
+            className="absolute inset-0 rounded-full"
+            style={{
+              background: "radial-gradient(circle, rgba(255,0,0,0.2) 0%, transparent 70%)",
+              transform: "scale(1.5)",
+              zIndex: -1
+            }}
+          />
+        )}
+      </motion.div>
+    ))
+  )}
+</AnimatePresence>
 
         {/* Birds queue showing different bird types */}
         <div className="absolute left-6 bottom-24">
@@ -636,25 +672,17 @@ function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot, b
               <stop offset="100%" stopColor="rgba(255,255,255,0)" />
             </linearGradient>
           </defs>
-          {/* Dotted projection line */}
-          {Array.from({ length: 12 }).map((_, i) => {
-            const dx = slingX - dragPos.x;
-            const dy = slingY - dragPos.y;
-            // Project forward instead of backward
-            const x = slingX + dx * (i * 0.4);
-            const y = slingY + dy * (i * 0.4) + (0.5 * 0.1 * Math.pow(i, 2)); // Add slight gravity curve
-            
-            return (
-              <circle 
-                key={i} 
-                cx={x} 
-                cy={y} 
-                r={3 - i * 0.2} 
-                fill="white" 
-                opacity={0.8 - i * 0.05} 
-              />
-            );
-          })}
+          {/* Corrected forward-pointing aimer */}
+          <line
+            x1={slingX} 
+            y1={slingY}
+            x2={slingX + (slingX - dragPos.x) * 3} 
+            y2={slingY + (slingY - dragPos.y) * 3} 
+            stroke="url(#aimLine)"
+            strokeWidth="3"
+            strokeDasharray="5,10"
+            opacity="0.8"
+          />
         </svg>
       )}
 

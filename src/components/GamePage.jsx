@@ -37,25 +37,14 @@ const GAME_CONFIG = {
 };
 
 // BIRD TYPES
+// src/components/GamePage.jsx
 const BIRD_TYPES = {
-  red: {
-    name: "Red",
-    mass: 1.0,
-    damage: 50,
-    special: null,
-  },
-  blue: {
-    name: "Blue",
-    mass: 0.6,
-    damage: 30,
-    special: "split",
-  },
-  yellow: {
-    name: "Yellow", 
-    mass: 0.8,
-    damage: 60,
-    special: "speed",
-  },
+  red: { name: "Red", mass: 1.0, damage: 50, special: null },
+  blue: { name: "Blue", mass: 0.6, damage: 30, special: "split" },
+  yellow: { name: "Yellow", mass: 0.8, damage: 60, special: "speed" },
+  black: { name: "Bomb", mass: 2.0, damage: 100, special: "explode" },
+  white: { name: "Matilda", mass: 1.2, damage: 40, special: "egg_drop" },
+  egg: { name: "Egg", mass: 0.5, damage: 80, special: null }
 };
 
 // BLOCK TYPES
@@ -105,7 +94,7 @@ const GROUND_Y = GAME_CONFIG.canvas.height - GAME_CONFIG.canvas.groundHeight;
  */
 function calculateBlockOnBlockScore(blocks) {
   let score = 0;
-  const HORIZONTAL_TOLERANCE = 45; 
+  const HORIZONTAL_TOLERANCE = 20; 
   const VERTICAL_TOLERANCE = 15; 
   const GROUND_LEVEL = 580; // Matches your canvas height - ground height
 
@@ -175,48 +164,66 @@ function calculateTrajectory(angle, velocity, startX, startY, steps = 150) {
  * Makes floating blocks fall and take impact damage
  */
 
+// Inside src/components/GamePage.jsx
+
+// src/components/GamePage.jsx
+
+// src/components/GamePage.jsx
+
 function resolveStructuralCollapses(blocks) {
   let updatedBlocks = [...blocks];
   let changed = true;
-  const FALL_DAMAGE_MULTIPLIER = 0.5;
+  const HORIZ_TOL = 25; 
+  const VERT_TOL = 15;
+  const GROUND_LEVEL = 580;
 
-  // Keep resolving until no more blocks need to fall
   while (changed) {
     changed = false;
     updatedBlocks = updatedBlocks.map(block => {
       const blockBottom = block.y + block.height;
       
-      // If block is on ground, it's stable
-      if (Math.abs(blockBottom - GROUND_Y) <= 5) return block;
+      // 1. If already on ground, it stays
+      if (Math.abs(blockBottom - GROUND_LEVEL) <= VERT_TOL) return block;
 
-      // Check for support below
+      // 2. Check if it has support directly underneath
       const hasSupport = updatedBlocks.some(other => {
         if (other.id === block.id) return false;
-        const verticallyAligned = Math.abs(blockBottom - other.y) <= 5;
+        const verticallyAligned = Math.abs(blockBottom - other.y) <= VERT_TOL;
         const blockCenterX = block.x + block.width / 2;
-        const horizontallyAligned = blockCenterX >= other.x && blockCenterX <= (other.x + other.width);
+        const horizontallyAligned = 
+          blockCenterX >= (other.x - HORIZ_TOL) && 
+          blockCenterX <= (other.x + other.width + HORIZ_TOL);
         return verticallyAligned && horizontallyAligned;
       });
 
       if (!hasSupport) {
         changed = true;
-        const fallDistance = 20; // Move down in increments
-        const newY = Math.min(block.y + fallDistance, GROUND_Y - block.height);
-        
-        // Apply fall damage
-        const impactDamage = fallDistance * FALL_DAMAGE_MULTIPLIER;
-        return { ...block, y: newY, damage: (block.damage || 0) + impactDamage };
+        // Logic: Find the highest possible "landing spot" below this block
+        let targetY = GROUND_LEVEL - block.height; // Default to ground
+
+        updatedBlocks.forEach(other => {
+          if (other.id !== block.id && other.y > block.y) {
+            const blockCenterX = block.x + block.width / 2;
+            if (blockCenterX >= (other.x - HORIZ_TOL) && blockCenterX <= (other.x + other.width + HORIZ_TOL)) {
+              // If this block is below us, the new target is its top
+              targetY = Math.min(targetY, other.y - block.height);
+            }
+          }
+        });
+
+        // Apply a small amount of "impact damage" for the fall
+        const fallDamage = 15; 
+        return { ...block, y: targetY, damage: (block.damage || 0) + fallDamage };
       }
       return block;
     });
 
-    // Remove blocks that broke during the fall
+    // Remove any blocks that broke from the fall damage
     updatedBlocks = updatedBlocks.filter(block => {
       const type = BLOCK_TYPES[block.type];
-      return block.damage < type.health;
+      return (block.damage || 0) < type.health;
     });
   }
-
   return updatedBlocks;
 }
 
@@ -252,70 +259,93 @@ function calculateDamage(velocity, birdType, blockType) {
 /**
  * SIMULATE SHOT
  */
+/**
+ * SIMULATE SHOT
+ * Calculates trajectory, collisions, and final structural state after a shot
+ */
 function simulateShot(blocks, angle, velocity, birdType = 'red') {
-  const trajectory = calculateTrajectory(
+  const mainTrajectory = calculateTrajectory(
     angle, 
     velocity, 
     GAME_CONFIG.slingshot.x, 
     GAME_CONFIG.slingshot.y
   );
   
-  if (trajectory.length === 0) {
-    return { 
-      newBlocks: blocks, 
-      trajectory, 
-      collisions: [],
-      reward: 0
-    };
+  // 1. Logic for Multiple Projectiles
+  let trajectories = [mainTrajectory];
+  if (birdType === 'blue') {
+    trajectories.push(
+      calculateTrajectory(angle + 10, velocity, GAME_CONFIG.slingshot.x, GAME_CONFIG.slingshot.y),
+      calculateTrajectory(angle - 10, velocity, GAME_CONFIG.slingshot.x, GAME_CONFIG.slingshot.y)
+    );
   }
-  
+
   const collisions = [];
   const updatedBlocks = blocks.map(block => ({ ...block }));
   
-  for (let i = 0; i < trajectory.length; i++) {
-    const point = trajectory[i];
-    
-    for (let blockIdx = 0; blockIdx < updatedBlocks.length; blockIdx++) {
-      const block = updatedBlocks[blockIdx];
+  // 2. Process projectile collisions along ALL active trajectories
+  trajectories.forEach(traj => {
+    for (let i = 0; i < traj.length; i++) {
+      const point = traj[i];
+      let hitSomething = false;
       
-      if (checkCollision(point.x, point.y, block)) {
-        const currentVelocity = velocity * Math.pow(GAME_CONFIG.physics.airResistance, i);
-        const damage = calculateDamage(currentVelocity, birdType, block.type);
-        
-        if (!block.damage) block.damage = 0;
-        block.damage += damage;
-        
-        collisions.push({
-          blockId: block.id,
-          position: { x: point.x, y: point.y },
-          damage: damage,
-          timestamp: point.t
-        });
-        
-        if (damage > 20) {
-          trajectory.splice(i + 1);
-          break;
+      for (let blockIdx = 0; blockIdx < updatedBlocks.length; blockIdx++) {
+        const block = updatedBlocks[blockIdx];
+        if (checkCollision(point.x, point.y, block)) {
+          const currentVelocity = velocity * Math.pow(GAME_CONFIG.physics.airResistance, i);
+          const damage = calculateDamage(currentVelocity, birdType, block.type);
+          
+          block.damage = (block.damage || 0) + damage;
+          
+          collisions.push({
+            blockId: block.id,
+            position: { x: point.x, y: point.y },
+            damage: damage
+          });
+          
+          if (damage > 20) {
+            traj.splice(i + 1);
+            hitSomething = true;
+            break;
+          }
         }
       }
+      if (hitSomething) break;
     }
+  });
+
+  // 3. FIX: Black Bird (Bomb) Radial Explosion
+  if (birdType === 'black' && mainTrajectory.length > 0) {
+    // Correctly get the last point of the main trajectory
+    const impactPoint = mainTrajectory[mainTrajectory.length - 1]; 
+    const EXPLOSION_RADIUS = 150;
+
+    updatedBlocks.forEach(block => {
+      const dx = (block.x + block.width/2) - impactPoint.x;
+      const dy = (block.y + block.height/2) - impactPoint.y;
+      const distance = Math.sqrt(dx*dx + dy*dy);
+
+      if (distance < EXPLOSION_RADIUS) {
+        const explosionDmg = 100 * (1 - distance / EXPLOSION_RADIUS);
+        block.damage = (block.damage || 0) + explosionDmg;
+      }
+    });
   }
   
-  const newBlocks = updatedBlocks.filter(block => {
-    const blockType = BLOCK_TYPES[block.type];
-    return !block.damage || block.damage < blockType.health;
+  // 4. Resolve final structural state
+  const remainingAfterImpact = updatedBlocks.filter(block => {
+    return (block.damage || 0) < BLOCK_TYPES[block.type].health;
   });
   
-  let finalBlocks = newBlocks;
-
-// Trigger structural collapse for floating blocks
-  finalBlocks = resolveStructuralCollapses(finalBlocks);
+  const finalBlocks = resolveStructuralCollapses(remainingAfterImpact);
+  
   const blocksDestroyed = blocks.length - finalBlocks.length;
   const totalDamage = collisions.reduce((sum, col) => sum + col.damage, 0);
   const reward = blocksDestroyed * 100 + totalDamage;
-  
+
   return { 
-    newBlocks, 
-    trajectory, 
+    newBlocks: finalBlocks, 
+    trajectories, // Return the ARRAY of paths for GameCanvas to render
     collisions,
     blocksDestroyed,
     totalDamage,
@@ -340,6 +370,8 @@ const initialBlocks = [
       { type: 'red', used: false },
       { type: 'blue', used: false },
       { type: 'yellow', used: false },
+      { type: 'black', used: false },
+      { type: 'white', used: false },
     ],
     currentBirdIndex: 0,
     score: 0,
@@ -358,108 +390,261 @@ const initialBlocks = [
   const currentBird = gameState.birds[gameState.currentBirdIndex];
   const currentStructureScore = calculateBlockOnBlockScore(gameState.blocks);
 
-  useEffect(() => {
+// src/components/GamePage.jsx
+
+useEffect(() => {
+  // Check if a bird is currently in flight. 
+  // We don't want to end the game while the last bird is still moving.
+  if (birdFlying) return;
+
+  const checkGameOver = () => {
     if (gameState.blocks.length === 0) {
       setGameStatus("won");
     } else if (birdsLeft === 0) {
-      setGameStatus("lost");
+      // Small delay after the last bird hits to see the final destruction
+      setTimeout(() => {
+        setGameStatus("lost");
+      }, 1500); // 1.5 second delay
     } else {
       setGameStatus("playing");
     }
-  }, [gameState.blocks.length, birdsLeft]);
+  };
 
-  function shootBird(angle, velocity) {
-    if (birdsLeft <= 0 || gameStatus !== "playing" || !currentBird) return;
+  // Add a slight delay to the victory check as well for visual satisfaction
+  if (gameState.blocks.length === 0) {
+    setTimeout(checkGameOver, 1000);
+  } else {
+    checkGameOver();
+  }
+}, [gameState.blocks.length, birdsLeft, birdFlying]); // Added birdFlying to dependencies
 
-    const birdType = currentBird.type;
-    const beforeScore = calculateBlockOnBlockScore(gameState.blocks);
-    const shotResult = simulateShot(gameState.blocks, angle, velocity, birdType);
+
+  // Add this inside the GamePage component
+// src/components/GamePage.jsx
+
+// src/components/GamePage.jsx
+
+function handleTriggerAbility() {
+  // 1. Safety check: Only trigger if a bird is flying and hasn't used its ability yet
+  if (!birdFlying || birdFlying.abilityUsed) return;
+
+  const currentBirdType = birdFlying.birdType;
+  const ability = BIRD_TYPES[currentBirdType]?.special;
+
+  // 2. Find the bird's current location in flight to sprout the ability from that exact point
+  const elapsed = Date.now() - birdFlying.startTime;
+  const currentFrame = Math.floor(elapsed / 16);
+  const currentPos = birdFlying.trajectory[currentFrame];
+
+  // If the bird is already off-screen or hit something, stop
+  if (!currentPos) return;
+
+  if (ability === "speed") {
+    // YELLOW BIRD: Recalculate trajectory with a 2.5x velocity boost
+    const boostedTraj = calculateTrajectory(
+      birdFlying.angle, 
+      birdFlying.velocity * 2.5, 
+      currentPos.x, 
+      currentPos.y
+    );
     
-    setBirdFlying({ 
-      angle, 
-      velocity, 
-      birdType,
-      trajectory: shotResult.trajectory,
-      startTime: Date.now() 
+    setBirdFlying(prev => ({ 
+      ...prev, 
+      trajectory: boostedTraj, 
+      startTime: Date.now(), 
+      abilityUsed: true 
+    }));
+  } 
+  
+  else if (ability === "split") {
+    // BLUE BIRD: Creates two additional "clone" trajectories at +15 and -15 degree offsets
+    const upperTraj = calculateTrajectory(birdFlying.angle + 15, birdFlying.velocity, currentPos.x, currentPos.y);
+    const lowerTraj = calculateTrajectory(birdFlying.angle - 15, birdFlying.velocity, currentPos.x, currentPos.y);
+    
+    setBirdFlying(prev => ({ 
+      ...prev, 
+      // Convert single trajectory into an array so GameCanvas can render all three
+      trajectories: [prev.trajectory, upperTraj, lowerTraj],
+      abilityUsed: true 
+    }));
+  }
+
+  else if (ability === "explode") {
+    // BLACK BIRD (BOMB): Triggers immediate radial damage and ends flight
+    setBirdFlying(null); // Bird disappears and explodes
+    
+    const EXPLOSION_RADIUS = 150;
+    const nearbyBlocks = gameState.blocks.map(block => {
+      // Calculate distance from explosion center to block center
+      const dx = (block.x + block.width/2) - currentPos.x;
+      const dy = (block.y + block.height/2) - currentPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance < EXPLOSION_RADIUS) {
+        // Damage scales: closer blocks take more damage (max 150)
+        const explosionDamage = Math.round(150 * (1 - distance / EXPLOSION_RADIUS));
+        return { ...block, damage: (block.damage || 0) + explosionDamage };
+      }
+      return block;
     });
-    setLastShotResult(null);
 
-    const flightTime = Math.min(1200, shotResult.trajectory.length * 16);
+    // Resolve structural collapse for any blocks weakened by the blast
+    const finalBlocks = resolveStructuralCollapses(
+      nearbyBlocks.filter(b => b.damage < BLOCK_TYPES[b.type].health)
+    );
+    
+    // Update game state immediately
+    setGameState(prev => ({ ...prev, blocks: finalBlocks }));
+    
+    // Show explosion visual effect
+    setImpactEffects([{ id: Date.now(), position: currentPos, radius: EXPLOSION_RADIUS }]);
+    setTimeout(() => setImpactEffects([]), 600);
+  }
 
-    setTimeout(() => {
-      setBirdFlying(null);
-      setIsLoading(true);
+// src/components/GamePage.jsx
 
-      const effects = shotResult.collisions.map((collision, idx) => ({
-        ...collision,
-        id: Date.now() + idx,
-        radius: 50
-      }));
-      setImpactEffects(effects);
+else if (ability === "egg_drop") {
+  const upwardTraj = calculateTrajectory(60, birdFlying.velocity * 0.5, currentPos.x, currentPos.y);
+  const eggTraj = calculateTrajectory(-90, 6, currentPos.x, currentPos.y); 
+  
+  setBirdFlying(prev => ({ 
+    ...prev, 
+    trajectory: upwardTraj, 
+    startTime: Date.now(),
+    // Send objects instead of just arrays so the canvas knows what is what
+    trajectories: [
+      { traj: upwardTraj, type: 'white' },
+      { traj: eggTraj, type: 'egg' }
+    ],
+    abilityUsed: true 
+  }));
+}
+}
 
-      setTimeout(() => setImpactEffects([]), 600);
+function shootBird(angle, velocity) {
+  if (birdsLeft <= 0 || gameStatus !== "playing" || !currentBird) return;
 
-      // Calculate Block-on-Block AI score
-      const afterScore = calculateBlockOnBlockScore(shotResult.newBlocks);
-      const aiScore = beforeScore - afterScore;
+  const birdType = currentBird.type;
+  const beforeScore = calculateBlockOnBlockScore(gameState.blocks);
+  const shotResult = simulateShot(gameState.blocks, angle, velocity, birdType);
+  
+  // 1. Initialize bird flight
+  setBirdFlying({ 
+    angle, velocity, birdType,
+    trajectories: shotResult.trajectories,
+    trajectory: shotResult.trajectories[0],
+    startTime: Date.now(),
+    abilityUsed: false
+  });
+  setLastShotResult(null);
 
-      const newBirds = [...gameState.birds];
-      newBirds[gameState.currentBirdIndex].used = true;
+  // 2. Proximity check for automatic abilities
+  const proximityCheck = setInterval(() => {
+    setBirdFlying(current => {
+      if (!current || current.abilityUsed) {
+        clearInterval(proximityCheck);
+        return current;
+      }
 
-      setGameState(prev => ({
+      const elapsed = Date.now() - current.startTime;
+      const frameIndex = Math.floor(elapsed / 16);
+      const pos = current.trajectory[frameIndex];
+
+      if (pos) {
+        const isNearBlock = gameState.blocks.some(block => {
+          const dx = (block.x + block.width/2) - pos.x;
+          const dy = (block.y + block.height/2) - pos.y;
+          return Math.sqrt(dx*dx + dy*dy) < 150;
+        });
+
+        if (isNearBlock) {
+          clearInterval(proximityCheck);
+          handleTriggerAbility(); 
+        }
+      }
+      return current;
+    });
+  }, 50);
+
+  // 3. Flight completion and bird replacement
+  const flightTime = Math.min(1200, shotResult.trajectories[0].length * 16);
+
+  setTimeout(() => {
+    clearInterval(proximityCheck); // Ensure cleanup
+    setBirdFlying(null);           // Stop animation to prevent "ghosting"
+    setIsLoading(true);
+
+    const effects = shotResult.collisions.map((collision, idx) => ({
+      ...collision,
+      id: Date.now() + idx,
+      radius: 50
+    }));
+    setImpactEffects(effects);
+    setTimeout(() => setImpactEffects([]), 600);
+
+    const afterScore = calculateBlockOnBlockScore(shotResult.newBlocks);
+    const aiScore = beforeScore - afterScore;
+
+    // Use functional update to reliably increment bird index
+    setGameState(prev => {
+      const newBirds = [...prev.birds];
+      if (newBirds[prev.currentBirdIndex]) {
+        newBirds[prev.currentBirdIndex].used = true;
+      }
+
+      return {
         ...prev,
         blocks: shotResult.newBlocks,
         birds: newBirds,
-        currentBirdIndex: prev.currentBirdIndex + 1,
+        currentBirdIndex: prev.currentBirdIndex + 1, // ADVANCE TO NEXT BIRD
         score: prev.score + shotResult.reward,
         shots: [...prev.shots, {
-          angle,
-          velocity,
-          birdType,
+          angle, velocity, birdType,
           blocksDestroyed: shotResult.blocksDestroyed,
-          totalDamage: shotResult.totalDamage,
           reward: shotResult.reward,
           beforeStructureScore: beforeScore,
           afterStructureScore: afterScore,
           aiScore: aiScore,
           timestamp: Date.now()
         }]
-      }));
-
-      setLastShotResult({
-        blocksDestroyed: shotResult.blocksDestroyed,
-        totalDamage: shotResult.totalDamage,
-        accuracy: shotResult.blocksDestroyed > 0 ? "Hit!" : "Miss!",
-        power: Math.round(velocity),
-        score: Math.round(shotResult.reward),
-        aiScore: aiScore,
-        beforeStructureScore: beforeScore,
-        afterStructureScore: afterScore
-      });
-
-      setIsLoading(false);
-    }, flightTime);
-  }
-
-  function resetGame() {
-    setGameState({
-      blocks: initialBlocks,
-      birds: [
-        { type: 'red', used: false },
-        { type: 'blue', used: false },
-        { type: 'yellow', used: false },
-      ],
-      currentBirdIndex: 0,
-      score: 0,
-      shots: [],
-      initialStructureScore: calculateBlockOnBlockScore(initialBlocks)
+      };
     });
-    setGameStatus("playing");
-    setLastShotResult(null);
-    setBirdFlying(null);
-    setImpactEffects([]);
-    setShowScoreboard(false);
-  }
+
+    setLastShotResult({
+      blocksDestroyed: shotResult.blocksDestroyed,
+      accuracy: shotResult.blocksDestroyed > 0 ? "Hit!" : "Miss!",
+      power: Math.round(velocity),
+      score: Math.round(shotResult.reward),
+      aiScore: aiScore,
+      beforeStructureScore: beforeScore,
+      afterStructureScore: afterScore
+    });
+
+    setIsLoading(false);
+  }, flightTime);
+}
+
+// Inside src/components/GamePage.jsx
+
+function resetGame() {
+  setGameState({
+    blocks: initialBlocks,
+    // Initialize ALL 5 bird types
+    birds: ['red', 'blue', 'yellow', 'black', 'white'].map(type => ({ 
+      type, 
+      used: false 
+    })),
+    currentBirdIndex: 0,
+    score: 0,
+    shots: [],
+    initialStructureScore: calculateBlockOnBlockScore(initialBlocks)
+  });
+  setGameStatus("playing");
+  setLastShotResult(null);
+  setBirdFlying(null);
+  setImpactEffects([]);
+  setShowScoreboard(false);
+}
 
   return (
     <div
@@ -598,6 +783,7 @@ const initialBlocks = [
           remainingBirds={gameState.birds}
           blocks={gameState.blocks}
           onShoot={shootBird}
+          onTriggerAbility={handleTriggerAbility}
           birdFlying={birdFlying}
           impactEffects={impactEffects}
           config={GAME_CONFIG}
