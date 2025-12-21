@@ -15,7 +15,7 @@ const BIRD_IMAGES = {
   white:white
 };
 
-function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot,onTriggerAbility, birdFlying, impactEffects, config }) {
+function GameCanvas({ birdsLeft, currentBird, remainingBirds, blocks, onShoot,onTriggerAbility, birdFlying, impactEffects, difficulty, config }) {
   const slingRef = useRef(null);
   const [dragPos, setDragPos] = useState(null);
   const [isAiming, setIsAiming] = useState(false);
@@ -38,17 +38,21 @@ const animate = () => {
   const frameIndex = Math.floor(elapsed / 16);
   
   const currentPositions = activeTrajectories.map(item => {
-    // Check if we are dealing with our new object structure or the old array structure
     const trajectory = item.traj || item;
     const type = item.type || birdFlying.birdType;
 
     if (frameIndex >= trajectory.length) return null;
     const point = trajectory[frameIndex];
+    
     let rotation = 0;
     if (frameIndex < trajectory.length - 1) {
       const nextPoint = trajectory[frameIndex + 1];
+      // Calculate angle based on the current movement vector
       rotation = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x) * 180 / Math.PI;
     }
+    
+    // If the bird is falling (Y is increasing rapidly and X is static), 
+    // it will naturally rotate to face downwards because of this logic.
     return { x: point.x, y: point.y, rotation, type };
   }).filter(p => p !== null);
 
@@ -585,6 +589,35 @@ const animate = () => {
           </div>
         </div>
       </div>
+
+      {difficulty.wallActive && (
+        <motion.div
+          className="absolute shadow-2xl border-x-4 border-gray-800"
+          style={{
+            left: 500, // Matches wallX in simulateShot
+            top: difficulty.wallY,
+            width: 30,
+            height: 150,
+            background: "repeating-linear-gradient(45deg, #4b5563, #4b5563 10px, #374151 10px, #374151 20px)",
+            borderRadius: "4px",
+            zIndex: 60
+          }}
+        >
+          {difficulty.isMoving && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col gap-2">
+              {/* <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" />
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse delay-75" /> */}
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* Right side – Blocks */}
       <div className="absolute right-0 top-0 w-1/2 h-full">

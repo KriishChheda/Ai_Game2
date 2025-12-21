@@ -15,6 +15,8 @@ import GameCanvas from "./GameCanvas";
  */
 
 // CONFIGURATION - Easy to extend for AI training
+
+
 const GAME_CONFIG = {
   canvas: {
     width: 1000,
@@ -164,12 +166,6 @@ function calculateTrajectory(angle, velocity, startX, startY, steps = 150) {
  * Makes floating blocks fall and take impact damage
  */
 
-// Inside src/components/GamePage.jsx
-
-// src/components/GamePage.jsx
-
-// src/components/GamePage.jsx
-
 function resolveStructuralCollapses(blocks) {
   let updatedBlocks = [...blocks];
   let changed = true;
@@ -263,7 +259,12 @@ function calculateDamage(velocity, birdType, blockType) {
  * SIMULATE SHOT
  * Calculates trajectory, collisions, and final structural state after a shot
  */
-function simulateShot(blocks, angle, velocity, birdType = 'red') {
+/**
+ * SIMULATE SHOT
+ * Calculates trajectory, collisions, and final structural state after a shot.
+ * Includes Dynamic Wall Collision (The Min Agent).
+ */
+function simulateShot(blocks, angle, velocity, birdType = 'red', difficulty) {
   const mainTrajectory = calculateTrajectory(
     angle, 
     velocity, 
@@ -285,28 +286,57 @@ function simulateShot(blocks, angle, velocity, birdType = 'red') {
   
   // 2. Process projectile collisions along ALL active trajectories
   trajectories.forEach(traj => {
-    for (let i = 0; i < traj.length; i++) {
-      const point = traj[i];
-      let hitSomething = false;
+  for (let i = 0; i < traj.length; i++) {
+    const point = traj[i];
+    let hitSomething = false;
+
+    if (difficulty?.wallActive) {
+      const wallX = 500;
+      const wallWidth = 30;
+      const wallHeight = 150; 
       
-      for (let blockIdx = 0; blockIdx < updatedBlocks.length; blockIdx++) {
-        const block = updatedBlocks[blockIdx];
-        if (checkCollision(point.x, point.y, block)) {
-          const currentVelocity = velocity * Math.pow(GAME_CONFIG.physics.airResistance, i);
-          const damage = calculateDamage(currentVelocity, birdType, block.type);
-          
-          block.damage = (block.damage || 0) + damage;
-          
+      if (point.x > wallX && point.x < wallX + wallWidth && 
+          point.y > difficulty.wallY && point.y < difficulty.wallY + wallHeight) {
+
           collisions.push({
-            blockId: block.id,
-            position: { x: point.x, y: point.y },
-            damage: damage
+            isWallHit: true,
+            position: { x: wallX, y: point.y },
+            radius: 20,
+            damage: 0
           });
-          
-          if (damage > 20) {
-            traj.splice(i + 1);
-            hitSomething = true;
-            break;
+        
+        // Calculate a "falling" trajectory starting from the hit point
+        // Angle -90 is straight down, with a low velocity for the "thud" effect
+        const fallPoints = calculateTrajectory(-90, 5, point.x, point.y, 50);
+        
+        // Replace everything after the hit with the fall
+        traj.splice(i, traj.length - i, ...fallPoints); 
+        
+        hitSomething = true;
+      }
+    }
+
+      // 3. Process block collisions only if the bird hasn't hit the wall
+      if (!hitSomething) {
+        for (let blockIdx = 0; blockIdx < updatedBlocks.length; blockIdx++) {
+          const block = updatedBlocks[blockIdx];
+          if (checkCollision(point.x, point.y, block)) {
+            const currentVelocity = velocity * Math.pow(GAME_CONFIG.physics.airResistance, i);
+            const damage = calculateDamage(currentVelocity, birdType, block.type);
+            
+            block.damage = (block.damage || 0) + damage;
+            
+            collisions.push({
+              blockId: block.id,
+              position: { x: point.x, y: point.y },
+              damage: damage
+            });
+            
+            if (damage > 20) {
+              traj.splice(i + 1);
+              hitSomething = true;
+              break;
+            }
           }
         }
       }
@@ -314,9 +344,8 @@ function simulateShot(blocks, angle, velocity, birdType = 'red') {
     }
   });
 
-  // 3. FIX: Black Bird (Bomb) Radial Explosion
+  // 4. Black Bird (Bomb) Radial Explosion
   if (birdType === 'black' && mainTrajectory.length > 0) {
-    // Correctly get the last point of the main trajectory
     const impactPoint = mainTrajectory[mainTrajectory.length - 1]; 
     const EXPLOSION_RADIUS = 150;
 
@@ -332,7 +361,7 @@ function simulateShot(blocks, angle, velocity, birdType = 'red') {
     });
   }
   
-  // 4. Resolve final structural state
+  // 5. Resolve final structural state
   const remainingAfterImpact = updatedBlocks.filter(block => {
     return (block.damage || 0) < BLOCK_TYPES[block.type].health;
   });
@@ -345,7 +374,7 @@ function simulateShot(blocks, angle, velocity, birdType = 'red') {
 
   return { 
     newBlocks: finalBlocks, 
-    trajectories, // Return the ARRAY of paths for GameCanvas to render
+    trajectories, 
     collisions,
     blocksDestroyed,
     totalDamage,
@@ -389,40 +418,63 @@ const initialBlocks = [
   const birdsLeft = gameState.birds.filter(b => !b.used).length;
   const currentBird = gameState.birds[gameState.currentBirdIndex];
   const currentStructureScore = calculateBlockOnBlockScore(gameState.blocks);
+  const [difficulty, setDifficulty] = useState({
+    wallActive: false,
+    wallY: 300,
+    isMoving: false
+  });
 
-// src/components/GamePage.jsx
+  useEffect(() => {
+  const shotCount = gameState.shots.length;
+  if (shotCount === 2) {
+    setDifficulty(prev => ({ ...prev, wallActive: true }));
+  } else if (shotCount >= 3) {
+    setDifficulty(prev => ({ ...prev, isMoving: true }));
+  }
+}, [gameState.shots.length]);
 
 useEffect(() => {
-  // Check if a bird is currently in flight. 
-  // We don't want to end the game while the last bird is still moving.
+  if (!difficulty.isMoving) return;
+
+  let frame;
+  const animateWall = (time) => {
+    // Moves the wall between Y: 100 and Y: 400
+    const newY = 250 + Math.sin(time / 500) * 150; 
+    setDifficulty(prev => ({ ...prev, wallY: newY }));
+    frame = requestAnimationFrame(animateWall);
+  };
+
+  frame = requestAnimationFrame(animateWall);
+  return () => cancelAnimationFrame(frame);
+}, [difficulty.isMoving]);
+
+
+useEffect(() => {
   if (birdFlying) return;
 
   const checkGameOver = () => {
     if (gameState.blocks.length === 0) {
       setGameStatus("won");
+      // Hide the wall on victory
+      setDifficulty(prev => ({ ...prev, wallActive: false, isMoving: false }));
     } else if (birdsLeft === 0) {
-      // Small delay after the last bird hits to see the final destruction
       setTimeout(() => {
         setGameStatus("lost");
-      }, 1500); // 1.5 second delay
+        // Hide the wall on game over
+        setDifficulty(prev => ({ ...prev, wallActive: false, isMoving: false }));
+      }, 1500);
     } else {
       setGameStatus("playing");
     }
   };
 
-  // Add a slight delay to the victory check as well for visual satisfaction
   if (gameState.blocks.length === 0) {
     setTimeout(checkGameOver, 1000);
   } else {
     checkGameOver();
   }
-}, [gameState.blocks.length, birdsLeft, birdFlying]); // Added birdFlying to dependencies
+}, [gameState.blocks.length, birdsLeft, birdFlying]);
 
-
-  // Add this inside the GamePage component
-// src/components/GamePage.jsx
-
-// src/components/GamePage.jsx
 
 function handleTriggerAbility() {
   // 1. Safety check: Only trigger if a bird is flying and hasn't used its ability yet
@@ -501,8 +553,6 @@ function handleTriggerAbility() {
     setTimeout(() => setImpactEffects([]), 600);
   }
 
-// src/components/GamePage.jsx
-
 else if (ability === "egg_drop") {
   const upwardTraj = calculateTrajectory(60, birdFlying.velocity * 0.5, currentPos.x, currentPos.y);
   const eggTraj = calculateTrajectory(-90, 6, currentPos.x, currentPos.y); 
@@ -526,7 +576,7 @@ function shootBird(angle, velocity) {
 
   const birdType = currentBird.type;
   const beforeScore = calculateBlockOnBlockScore(gameState.blocks);
-  const shotResult = simulateShot(gameState.blocks, angle, velocity, birdType);
+  const shotResult = simulateShot(gameState.blocks, angle, velocity, birdType, difficulty);
   
   // 1. Initialize bird flight
   setBirdFlying({ 
@@ -577,7 +627,8 @@ function shootBird(angle, velocity) {
     const effects = shotResult.collisions.map((collision, idx) => ({
       ...collision,
       id: Date.now() + idx,
-      radius: 50
+      radius: collision.isWallHit ? 20 : 50,
+      isWallHit: collision.isWallHit || false
     }));
     setImpactEffects(effects);
     setTimeout(() => setImpactEffects([]), 600);
@@ -624,8 +675,6 @@ function shootBird(angle, velocity) {
   }, flightTime);
 }
 
-// Inside src/components/GamePage.jsx
-
 function resetGame() {
   setGameState({
     blocks: initialBlocks,
@@ -638,6 +687,11 @@ function resetGame() {
     score: 0,
     shots: [],
     initialStructureScore: calculateBlockOnBlockScore(initialBlocks)
+  });
+  setDifficulty({
+    wallActive: false,
+    wallY: 300,
+    isMoving: false
   });
   setGameStatus("playing");
   setLastShotResult(null);
@@ -786,6 +840,7 @@ function resetGame() {
           onTriggerAbility={handleTriggerAbility}
           birdFlying={birdFlying}
           impactEffects={impactEffects}
+          difficulty={difficulty}
           config={GAME_CONFIG}
         />
 
