@@ -1,4 +1,3 @@
-// src/components/GamePage.jsx
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import GameCanvas from "./GameCanvas";
@@ -39,7 +38,7 @@ const GAME_CONFIG = {
 };
 
 // BIRD TYPES
-// src/components/GamePage.jsx
+
 const BIRD_TYPES = {
   red: { name: "Red", mass: 1.0, damage: 50, special: null },
   blue: { name: "Blue", mass: 0.6, damage: 30, special: "split" },
@@ -94,38 +93,35 @@ const GROUND_Y = GAME_CONFIG.canvas.height - GAME_CONFIG.canvas.groundHeight;
  * Calculates structural stability score. 
  * Initial score with 5 blocks will be 5.
  */
+
+
 function calculateBlockOnBlockScore(blocks) {
   let score = 0;
-  const HORIZONTAL_TOLERANCE = 20; 
+  const HORIZONTAL_TOLERANCE = 25; 
   const VERTICAL_TOLERANCE = 15; 
-  const GROUND_LEVEL = 580; // Matches your canvas height - ground height
+  const GROUND_LEVEL = 580; 
 
   blocks.forEach(block => {
     const blockBottom = block.y + block.height;
+    const blockCenterX = block.x + block.width / 2;
     
-    // 1. Every block in the array starts as a potential point.
-    // We just need to verify if it is "stable" (on ground or on a block).
+    // 1. Check if the block is on the ground
+    const isOnGround = Math.abs(blockBottom - GROUND_LEVEL) <= VERTICAL_TOLERANCE;
     
-    // Check if on ground
-    if (Math.abs(blockBottom - GROUND_LEVEL) <= VERTICAL_TOLERANCE) {
-      score += 1;
-      return;
-    }
-    
-    // Check if supported by ANY other block
+    // 2. Check if the block is supported by another block underneath it
     const isSupported = blocks.some(otherBlock => {
       if (otherBlock.id === block.id) return false;
       
       const verticallyAligned = Math.abs(blockBottom - otherBlock.y) <= VERTICAL_TOLERANCE;
-      const blockCenterX = block.x + block.width / 2;
       const horizontallyAligned = 
         blockCenterX >= (otherBlock.x - HORIZONTAL_TOLERANCE) && 
         blockCenterX <= (otherBlock.x + otherBlock.width + HORIZONTAL_TOLERANCE);
         
       return verticallyAligned && horizontallyAligned;
     });
-    
-    if (isSupported) {
+
+    // A block only counts if it is stable (on ground or on another block).
+    if (isOnGround || isSupported) {
       score += 1;
     }
   });
@@ -137,7 +133,7 @@ function calculateBlockOnBlockScore(blocks) {
  * PHYSICS ENGINE - Accurate projectile trajectory
  */
 // src/components/GamePage.jsx - Refined trajectory
-function calculateTrajectory(angle, velocity, startX, startY, steps = 150) {
+function calculateTrajectory(angle, velocity, startX, startY, steps = 400) {
   const rad = (angle * Math.PI) / 180;
   // Increase sensitivity: lower the divisor for a more powerful feel
   const vx = Math.cos(rad) * velocity * 65; 
@@ -172,6 +168,7 @@ function resolveStructuralCollapses(blocks) {
   const HORIZ_TOL = 25; 
   const VERT_TOL = 15;
   const GROUND_LEVEL = 580;
+  const FALL_SPEED = 20; // Distance to fall per physics tick
 
   while (changed) {
     changed = false;
@@ -194,22 +191,14 @@ function resolveStructuralCollapses(blocks) {
 
       if (!hasSupport) {
         changed = true;
-        // Logic: Find the highest possible "landing spot" below this block
-        let targetY = GROUND_LEVEL - block.height; // Default to ground
-
-        updatedBlocks.forEach(other => {
-          if (other.id !== block.id && other.y > block.y) {
-            const blockCenterX = block.x + block.width / 2;
-            if (blockCenterX >= (other.x - HORIZ_TOL) && blockCenterX <= (other.x + other.width + HORIZ_TOL)) {
-              // If this block is below us, the new target is its top
-              targetY = Math.min(targetY, other.y - block.height);
-            }
-          }
-        });
-
-        // Apply a small amount of "impact damage" for the fall
-        const fallDamage = 15; 
-        return { ...block, y: targetY, damage: (block.damage || 0) + fallDamage };
+        
+        // FIX: Instead of teleporting to targetY, we move it down by FALL_SPEED
+        // This allows Framer Motion to animate the transition between positions smoothly.
+        const nextY = Math.min(block.y + FALL_SPEED, GROUND_LEVEL - block.height);
+        
+        // Apply a small amount of "impact damage" for the movement
+        const fallDamage = 5; 
+        return { ...block, y: nextY, damage: (block.damage || 0) + fallDamage };
       }
       return block;
     });
@@ -222,7 +211,6 @@ function resolveStructuralCollapses(blocks) {
   }
   return updatedBlocks;
 }
-
 /**
  * COLLISION DETECTION
  */
@@ -450,31 +438,46 @@ useEffect(() => {
 
 
 useEffect(() => {
+  // Do not process game over while a bird is still in flight
   if (birdFlying) return;
 
   const checkGameOver = () => {
+    // 1. Immediate Win Check (The "Max" Agent success)
     if (gameState.blocks.length === 0) {
       setGameStatus("won");
-      // Hide the wall on victory
       setDifficulty(prev => ({ ...prev, wallActive: false, isMoving: false }));
-    } else if (birdsLeft === 0) {
-      setTimeout(() => {
-        setGameStatus("lost");
-        // Hide the wall on game over
-        setDifficulty(prev => ({ ...prev, wallActive: false, isMoving: false }));
-      }, 1500);
-    } else {
-      setGameStatus("playing");
-    }
+      return; 
+    } 
+    
+    // 2. Potential Loss Check (Only if blocks still exist)
+    if (birdsLeft === 0) {
+      const lossTimer = setTimeout(() => {
+        // CRITICAL FIX: We must check the LATEST state of blocks.
+        // We use a functional state update trick to read the current state 
+        // without actually changing anything.
+        setGameState(currentState => {
+          if (currentState.blocks.length === 0) {
+            setGameStatus("won");
+            setDifficulty(prev => ({ ...prev, wallActive: false, isMoving: false }));
+          } else {
+            setGameStatus("lost");
+            setDifficulty(prev => ({ ...prev, wallActive: false, isMoving: false }));
+          }
+          return currentState; // Return state unchanged
+        });
+      }, 1500); // 1.5s delay to allow final collapses/destructions to register
+
+      return () => clearTimeout(lossTimer);
+    } 
+    
+    setGameStatus("playing");
   };
 
-  if (gameState.blocks.length === 0) {
-    setTimeout(checkGameOver, 1000);
-  } else {
-    checkGameOver();
-  }
-}, [gameState.blocks.length, birdsLeft, birdFlying]);
+  // Run the check after a small delay to allow physics "settling"
+  const settlingTimer = setTimeout(checkGameOver, 500);
+  return () => clearTimeout(settlingTimer);
 
+}, [gameState.blocks.length, birdsLeft, birdFlying]);
 
 function handleTriggerAbility() {
   // 1. Safety check: Only trigger if a bird is flying and hasn't used its ability yet
@@ -492,21 +495,41 @@ function handleTriggerAbility() {
   if (!currentPos) return;
 
   if (ability === "speed") {
-    // YELLOW BIRD: Recalculate trajectory with a 2.5x velocity boost
-    const boostedTraj = calculateTrajectory(
-      birdFlying.angle, 
-      birdFlying.velocity * 2.5, 
-      currentPos.x, 
-      currentPos.y
-    );
-    
-    setBirdFlying(prev => ({ 
-      ...prev, 
-      trajectory: boostedTraj, 
-      startTime: Date.now(), 
-      abilityUsed: true 
-    }));
-  } 
+  // 1. Calculate the new boosted trajectory
+  let boostedTraj = calculateTrajectory(
+    birdFlying.angle, 
+    birdFlying.velocity * 2.5, 
+    currentPos.x, 
+    currentPos.y
+  );
+
+  // 2. NEW: Check for Wall Collision on the new boosted path
+  if (difficulty?.wallActive) {
+    const wallX = 500;
+    const wallWidth = 30;
+    const wallHeight = 150;
+
+    for (let i = 0; i < boostedTraj.length; i++) {
+      const p = boostedTraj[i];
+      if (p.x > wallX && p.x < wallX + wallWidth && 
+          p.y > difficulty.wallY && p.y < difficulty.wallY + wallHeight) {
+        
+        // Create the "hit and drop" effect for the boosted bird
+        const fallPoints = calculateTrajectory(-90, 5, p.x, p.y, 50);
+        boostedTraj.splice(i, boostedTraj.length - i, ...fallPoints);
+        break; 
+      }
+    }
+  }
+
+  // 3. Update the bird state with the wall-aware boosted trajectory
+  setBirdFlying(prev => ({ 
+    ...prev, 
+    trajectory: boostedTraj, 
+    startTime: Date.now(), 
+    abilityUsed: true 
+  }));
+}
   
   else if (ability === "split") {
     // BLUE BIRD: Creates two additional "clone" trajectories at +15 and -15 degree offsets
@@ -761,17 +784,25 @@ function resetGame() {
           Angry Birds 2.0
         </h1>
 
-        {/* Game Stats */}
+                {/* Game Stats */}
+                {/* src/components/GamePage.jsx - Game Stats Header */}
         <div className="flex items-center justify-center gap-8 mb-4">
           <motion.div
             className="bg-white bg-opacity-20 backdrop-blur-sm rounded-xl px-6 py-3"
             whileHover={{ scale: 1.05 }}
           >
             <div className="text-yellow-700 text-lg font-semibold">
-              Birds Left:{" "}
-              <span className="text-yellow-700 text-2xl font-bold">
-                {birdsLeft}
-              </span>
+              {/* If the game is won, override the bird count with Victory text */}
+              {gameStatus === "won" ? (
+                <span className="text-green-700 text-2xl font-bold">VICTORY!</span>
+              ) : (
+                <>
+                  Birds Left:{" "}
+                  <span className="text-yellow-700 text-2xl font-bold">
+                    {birdsLeft}
+                  </span>
+                </>
+              )}
             </div>
           </motion.div>
 
@@ -996,53 +1027,54 @@ function resetGame() {
       </AnimatePresence>
 
       {/* Game Over Modal */}
-      <AnimatePresence>
-        {gameStatus !== "playing" && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50"
-          >
-            <motion.div
-              initial={{ scale: 0.5, y: 50 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: 50 }}
-              className="bg-white rounded-2xl p-8 text-center max-w-md mx-4 shadow-2xl"
-            >
-              <h2 className="text-3xl font-bold mb-4 text-gray-800">
-                {gameStatus === "won" ? "Victory!" : "Game Over!"}
-              </h2>
-              <p className="text-lg text-gray-600 mb-2">
-                {gameStatus === "won"
-                  ? "Congratulations! You destroyed all the blocks!"
-                  : "No more birds left. Better luck next time!"}
-              </p>
-              
-              {gameState.shots.length > 0 && (
-                <div className="my-4 p-4 bg-purple-50 rounded-lg">
-                  <div className="text-sm text-gray-600 mb-1">Total AI Score</div>
-                  <div className="text-3xl font-bold text-purple-600">
-                    {gameState.shots.reduce((sum, shot) => sum + shot.aiScore, 0)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Structural Damage Points
-                  </div>
-                </div>
-              )}
-              
-              <motion.button
-                onClick={resetGame}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-3 rounded-lg font-semibold text-lg shadow-lg hover:shadow-xl transition-shadow"
-              >
-                🔄 Play Again
-              </motion.button>
-            </motion.div>
-          </motion.div>
+      {/* src/components/GamePage.jsx - Game Over Modal */}
+<AnimatePresence>
+  {gameStatus !== "playing" && (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50"
+    >
+      <motion.div
+        initial={{ scale: 0.5, y: 50 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.5, y: 50 }}
+        className="bg-white rounded-2xl p-8 text-center max-w-md mx-4 shadow-2xl"
+      >
+        <h2 className="text-3xl font-bold mb-4 text-gray-800">
+          {gameStatus === "won" ? "Victory!" : "Game Over!"}
+        </h2>
+        <p className="text-lg text-gray-600 mb-2">
+          {gameStatus === "won"
+            ? "Congratulations! You destroyed all the blocks!"
+            : "No more birds left. Better luck next time!"}
+        </p>
+        
+        {gameState.shots.length > 0 && (
+          <div className="my-4 p-4 bg-purple-50 rounded-lg">
+            <div className="text-sm text-gray-600 mb-1">Total AI Score</div>
+            <div className="text-3xl font-bold text-purple-600">
+              {gameState.shots.reduce((sum, shot) => sum + shot.aiScore, 0)}
+            </div>
+            <div className="text-xs text-gray-500 mt-1">
+              Structural Damage Points
+            </div>
+          </div>
         )}
-      </AnimatePresence>
+        
+        <motion.button
+          onClick={resetGame}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-3 rounded-lg font-semibold text-lg shadow-lg hover:shadow-xl transition-shadow"
+        >
+          🔄 Play Again
+        </motion.button>
+      </motion.div>
+    </motion.div>
+  )}
+</AnimatePresence>
 
       {/* Instructions */}
       <motion.div

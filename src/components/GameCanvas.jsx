@@ -91,7 +91,7 @@ const animate = () => {
     if (!dragPos) return;
     const dx = slingX - dragPos.x;
     const dy = slingY - dragPos.y;
-    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const angle = (Math.atan2(-dy, dx) * 180) / Math.PI;
     const velocity = Math.sqrt(dx * dx + dy * dy) / 5;
     onShoot(angle, velocity);
     setDragPos(null);
