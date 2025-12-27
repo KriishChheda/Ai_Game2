@@ -16,20 +16,21 @@ import GameCanvas from "./GameCanvas";
 // CONFIGURATION - Easy to extend for AI training
 
 
+// this is a constant object that will store the settings of the game in one place
 const GAME_CONFIG = {
   canvas: {
     width: 1000,
     height: 600,
-    groundHeight: 20,
+    groundHeight: 20, 
   },
   slingshot: {
     x: 180,
     y: 535,
   },
   physics: {
-    gravity: 980,
-    airResistance: 0.99,
-    timeStep: 1/60,
+    gravity: 980, // pixels per second squared
+    airResistance: 0.99, 
+    timeStep: 1/60, // 60 updates per second
   },
   collision: {
     birdRadius: 22,
@@ -48,7 +49,8 @@ const BIRD_TYPES = {
   egg: { name: "Egg", mass: 0.5, damage: 80, special: null }
 };
 
-// BLOCK TYPES
+// BLOCK TYPES is an object of objects
+// there are 5 different types of blocks with their own density, colour and health. Density affects how much damage a block takes from a bird hit. Health is how much damage a block can take before it is destroyed.
 const BLOCK_TYPES = {
   wood: {
     name: "Wood",
@@ -82,7 +84,7 @@ const BLOCK_TYPES = {
   }
 };
 
-const GROUND_Y = GAME_CONFIG.canvas.height - GAME_CONFIG.canvas.groundHeight;
+const GROUND_Y = GAME_CONFIG.canvas.height - GAME_CONFIG.canvas.groundHeight; //
 
 /**
  * BLOCK-ON-BLOCK AI ALGORITHM
@@ -95,10 +97,12 @@ const GROUND_Y = GAME_CONFIG.canvas.height - GAME_CONFIG.canvas.groundHeight;
  */
 
 
+// this function takes in an array of blocks and calculates the score based on how many blocks are stable (on ground or on another block).
+
 function calculateBlockOnBlockScore(blocks) {
   let score = 0;
-  const HORIZONTAL_TOLERANCE = 25; 
-  const VERTICAL_TOLERANCE = 15; 
+  const HORIZONTAL_TOLERANCE = 25; // tells how much horizontal shift is allowed for a block to be considered "on" another block
+  const VERTICAL_TOLERANCE = 15; // tells the difference in y axis to consider a block "on" another block
   const GROUND_LEVEL = 580; 
 
   blocks.forEach(block => {
@@ -129,15 +133,14 @@ function calculateBlockOnBlockScore(blocks) {
   return score;
 }
 
-/**
- * PHYSICS ENGINE - Accurate projectile trajectory
- */
-// src/components/GamePage.jsx - Refined trajectory
+// so we divided the entire trajectory to 400 points and we are calculating the x and y  coordinates for every point and pushing an object of x, y and time to an array called trajectory
+// startX and startY is the initial coordinate of the bird when it is shot from the slingshot
+// steps is the number of points to calculate along the trajectory
 function calculateTrajectory(angle, velocity, startX, startY, steps = 400) {
-  const rad = (angle * Math.PI) / 180;
+  const rad = (angle * Math.PI) / 180; // converted the angle at which the angry bird is shot into radians.
   // Increase sensitivity: lower the divisor for a more powerful feel
-  const vx = Math.cos(rad) * velocity * 65; 
-  const vy = -Math.sin(rad) * velocity * 65;
+  const vx = Math.cos(rad) * velocity * 65; // horizontal component of the velocity at which the bird is shot
+  const vy = -Math.sin(rad) * velocity * 65; // vertical component of the velocity at which the bird is shot (negative because screen y increases downwards)
   
   const trajectory = [];
   const dt = 0.016; // Fixed 60fps step for smoothness
@@ -146,8 +149,8 @@ function calculateTrajectory(angle, velocity, startX, startY, steps = 400) {
     const t = i * dt;
     // Apply air resistance per step
     const resistance = Math.pow(GAME_CONFIG.physics.airResistance, i);
-    const x = startX + vx * t * resistance;
-    const y = startY + vy * t + 0.5 * GAME_CONFIG.physics.gravity * t * t;
+    const x = startX + vx * t * resistance;  // horizontal speed* time * resistance will give you the horizontal distance travelled which you add to startX to get the current x position
+    const y = startY + vy * t + 0.5 * GAME_CONFIG.physics.gravity * t * t; // vertical position formula with gravity effect
     
     if (y > GROUND_Y + 50 || x > GAME_CONFIG.canvas.width + 100) break;
     
@@ -211,13 +214,19 @@ function resolveStructuralCollapses(blocks) {
   }
   return updatedBlocks;
 }
+
 /**
  * COLLISION DETECTION
  */
+
+
+// birdX and birdY are the current coordinates of the bird
+// block is the block object with x, y, width and height properties
+// if the radius of the bird is greater than the distance between the center of the bird and the closest point on the block then there is a collision
 function checkCollision(birdX, birdY, block) {
   const birdRadius = GAME_CONFIG.collision.birdRadius;
   
-  const closestX = Math.max(block.x, Math.min(birdX, block.x + block.width));
+  const closestX = Math.max(block.x, Math.min(birdX, block.x + block.width)); 
   const closestY = Math.max(block.y, Math.min(birdY, block.y + block.height));
   
   const distanceX = birdX - closestX;
@@ -230,11 +239,12 @@ function checkCollision(birdX, birdY, block) {
 /**
  * DAMAGE CALCULATION
  */
+
 function calculateDamage(velocity, birdType, blockType) {
   const bird = BIRD_TYPES[birdType];
   const block = BLOCK_TYPES[blockType];
   
-  const velocityFactor = velocity / 10;
+  const velocityFactor = velocity / 10; // Normalize velocity to a manageable scale
   const damage = bird.damage * velocityFactor / block.density * GAME_CONFIG.collision.damageMultiplier;
   
   return Math.round(damage);
@@ -242,16 +252,10 @@ function calculateDamage(velocity, birdType, blockType) {
 
 /**
  * SIMULATE SHOT
- */
-/**
- * SIMULATE SHOT
- * Calculates trajectory, collisions, and final structural state after a shot
- */
-/**
- * SIMULATE SHOT
  * Calculates trajectory, collisions, and final structural state after a shot.
  * Includes Dynamic Wall Collision (The Min Agent).
  */
+
 function simulateShot(blocks, angle, velocity, birdType = 'red', difficulty) {
   const mainTrajectory = calculateTrajectory(
     angle, 
@@ -371,6 +375,7 @@ function simulateShot(blocks, angle, velocity, birdType = 'red', difficulty) {
 }
 
 function GamePage() {
+  // the width and height of every block is 60x60. Its initial damage is 0.
 const initialBlocks = [
   // Grounded blocks
   { id: 1, x: 400, y: 520, width: 60, height: 60, type: "wood", damage: 0 }, 
@@ -408,10 +413,11 @@ const initialBlocks = [
   const currentStructureScore = calculateBlockOnBlockScore(gameState.blocks);
   const [difficulty, setDifficulty] = useState({
     wallActive: false,
-    wallY: 300,
+    wallY: 300, // initial Y position of the wall
     isMoving: false
   });
 
+  // whenever there is a change in the array gameState.shots , this useEffect will be called.
   useEffect(() => {
   const shotCount = gameState.shots.length;
   if (shotCount === 2) {
@@ -420,6 +426,7 @@ const initialBlocks = [
     setDifficulty(prev => ({ ...prev, isMoving: true }));
   }
 }, [gameState.shots.length]);
+
 
 useEffect(() => {
   if (!difficulty.isMoving) return;
@@ -871,7 +878,10 @@ function resetGame() {
           onTriggerAbility={handleTriggerAbility}
           birdFlying={birdFlying}
           impactEffects={impactEffects}
-          difficulty={difficulty}
+          difficulty={{
+            ...difficulty,
+            wallActive: showScoreboard ? false : difficulty.wallActive
+          }}
           config={GAME_CONFIG}
         />
 
@@ -937,6 +947,17 @@ function resetGame() {
                   <em>Higher AI scores = Better structural damage!</em>
                 </p>
               </div>
+
+              {/* Min-Max Algorithm Section */}
+                <div className="p-4 bg-red-50 rounded-lg border-2 border-red-200">
+                  <h3 className="text-lg font-bold text-red-900 mb-2">⚔️ Min-Max Adversarial AI</h3>
+                  <p className="text-xs text-red-800 mb-2">
+                    <strong>Max Agent (Birds):</strong> Goal is to maximize structural damage utility.
+                  </p>
+                  <p className="text-xs text-red-800">
+                    <strong>Min Agent (Blocks):</strong> Deploys a defensive wall on the 3rd shot (moving from 4th) to minimize Bird utility.
+                  </p>
+                </div>
 
               {gameState.shots.length === 0 ? (
                 <div className="text-center py-12 text-gray-500 text-lg">
@@ -1027,7 +1048,6 @@ function resetGame() {
       </AnimatePresence>
 
       {/* Game Over Modal */}
-      {/* src/components/GamePage.jsx - Game Over Modal */}
 <AnimatePresence>
   {gameStatus !== "playing" && (
     <motion.div
