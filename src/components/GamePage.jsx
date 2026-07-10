@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import GameCanvas from "./GameCanvas";
-
+import { db } from "../firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 /**
  * SCALABLE ANGRY BIRDS GAME ENGINE WITH BLOCK-ON-BLOCK AI ALGORITHM
  * 
@@ -374,6 +377,7 @@ function simulateShot(blocks, angle, velocity, birdType = 'red', difficulty) {
   };
 }
 
+
 function GamePage() {
   // the width and height of every block is 60x60. Its initial damage is 0.
 const initialBlocks = [
@@ -386,6 +390,8 @@ const initialBlocks = [
   // Top layer
   { id: 2, x: 370, y: 400, width: 60, height: 60, type: "stone", damage: 0 }, 
 ];
+  const navigate = useNavigate();
+  const { user } = useAuth(); 
   const [gameState, setGameState] = useState({
     blocks: initialBlocks,
     birds: [
@@ -400,7 +406,6 @@ const initialBlocks = [
     shots: [],
     initialStructureScore: 5
   });
-
   const [isLoading, setIsLoading] = useState(false);
   const [gameStatus, setGameStatus] = useState("playing");
   const [lastShotResult, setLastShotResult] = useState(null);
@@ -416,6 +421,38 @@ const initialBlocks = [
     wallY: 300, // initial Y position of the wall
     isMoving: false
   });
+
+  const saveGameToHistory = async (finalAiScore, resultStatus, finalTotalScore, finalBlocksLeft) => {
+    if (!user) return;
+    try {
+      await addDoc(collection(db, "users", user.uid, "scores"), {
+        score: finalAiScore,
+        status: resultStatus,
+        totalGameScore: finalTotalScore,
+        blocksDestroyed: initialBlocks.length - finalBlocksLeft,
+        timestamp: serverTimestamp(),
+      });
+      console.log("Match data saved to cloud.");
+    } catch (error) {
+      console.error("Firestore Error:", error);
+    }
+  };
+// const saveGameToHistory = async (finalAiScore, resultStatus, finalTotalScore, finalBlocksLeft) => {
+//   if (!user) return;
+
+//   try {
+//     await addDoc(collection(db, "users", user.uid, "scores"), {
+//       score: finalAiScore,
+//       status: resultStatus,
+//       totalGameScore: finalTotalScore, // Use passed argument
+//       blocksDestroyed: initialBlocks.length - finalBlocksLeft, // Use passed argument
+//       timestamp: serverTimestamp(),
+//     });
+//     console.log("Game history updated!");
+//   } catch (error) {
+//     console.error("Error saving game history:", error);
+//   }
+// };
 
   // whenever there is a change in the array gameState.shots , this useEffect will be called.
   useEffect(() => {
@@ -485,6 +522,40 @@ useEffect(() => {
   return () => clearTimeout(settlingTimer);
 
 }, [gameState.blocks.length, birdsLeft, birdFlying]);
+
+// useEffect(() => {
+//   if (birdFlying) return;
+
+//   const checkGameOver = () => {
+//     const totalAiScore = gameState.shots.reduce((sum, s) => sum + s.aiScore, 0);
+
+//     // 1. Handle Victory
+//     if (gameState.blocks.length === 0 && gameStatus === "playing") {
+//       setGameStatus("won");
+//       // Pass the current state values explicitly to avoid stale data
+//       saveGameToHistory(totalAiScore, "won", gameState.score, 0);
+//       return; 
+//     } 
+    
+//     // 2. Handle Loss
+//     if (birdsLeft === 0 && gameStatus === "playing") {
+//       setTimeout(() => {
+//         // Use functional state to get the ABSOLUTE latest state after physics settles
+//         setGameState(currentState => {
+//           if (currentState.blocks.length > 0) {
+//             setGameStatus("lost");
+//             const finalAi = currentState.shots.reduce((sum, s) => sum + s.aiScore, 0);
+//             saveGameToHistory(finalAi, "lost", currentState.score, currentState.blocks.length);
+//           }
+//           return currentState;
+//         });
+//       }, 1500);
+//     }
+//   };
+
+//   const settlingTimer = setTimeout(checkGameOver, 500);
+//   return () => clearTimeout(settlingTimer);
+// }, [gameState.blocks.length, birdsLeft, birdFlying, gameStatus]);
 
 function handleTriggerAbility() {
   // 1. Safety check: Only trigger if a bird is flying and hasn't used its ability yet
@@ -747,6 +818,15 @@ function resetGame() {
           100% { background-position: 0% 50%; }
         }
       `}</style>
+      
+      {/* Profile Button - Top Left */}
+      <motion.button
+        className="fixed top-4 left-4 bg-white/20 backdrop-blur-md text-white px-6 py-3 rounded-lg font-bold border border-white/20 z-50"
+        whileHover={{ scale: 1.05 }}
+        onClick={() => navigate("/profile")}
+      >
+        👤 PILOT PROFILE
+      </motion.button>
 
       {/* Scoreboard Button - Top Right */}
       <motion.button
